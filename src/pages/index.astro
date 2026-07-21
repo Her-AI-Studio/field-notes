@@ -1,11 +1,45 @@
 ---
-import Welcome from '../components/Welcome.astro';
 import Layout from '../layouts/Layout.astro';
+import { getCollection } from 'astro:content';
 
-// Welcome to Astro! Wondering what to do next? Check out the Astro documentation at https://docs.astro.build
-// Don't want to use any of this? Delete everything in this file, the `assets`, `components`, and `layouts` directories, and start fresh.
+const notes = await getCollection('notes');
+notes.sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
 ---
 
-<Layout>
-	<Welcome />
+<Layout title="Field Notes — A Collection of Observations">
+  <div class="container">
+    <section class="hero">
+      <h1>Field Notes</h1>
+      <p>Observations, sketches, and records from the natural world — shared to the public.</p>
+    </section>
+
+    {notes.length > 0 ? (
+      <div class="card-grid">
+        {notes.map((note) => (
+          <article class="note-card">
+            <div class="note-card-meta">
+              <span class="date">{note.data.date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
+              <span class="separator">·</span>
+              <span class="location">{note.data.location}</span>
+            </div>
+            <h2><a href={`/notes/${note.id}/`}>{note.data.title}</a></h2>
+            <p class="excerpt">{note.data.excerpt}</p>
+            {note.data.tags && note.data.tags.length > 0 && (
+              <div class="tags">
+                {note.data.tags.map((tag) => (
+                  <span class="tag">{tag}</span>
+                ))}
+              </div>
+            )}
+            <a href={`/notes/${note.id}/`} class="read-more">Read field notes</a>
+          </article>
+        ))}
+      </div>
+    ) : (
+      <div class="empty-state">
+        <div class="empty-icon">📓</div>
+        <p>No field notes yet. Check back soon.</p>
+      </div>
+    )}
+  </div>
 </Layout>

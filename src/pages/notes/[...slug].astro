@@ -1,0 +1,52 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { getCollection, render } from 'astro:content';
+
+export async function getStaticPaths() {
+  const notes = await getCollection('notes');
+  return notes.map((note) => ({
+    params: { slug: note.id },
+    props: { id: note.id },
+  }));
+}
+
+const { id } = Astro.props;
+const [note] = await getCollection('notes', (entry) => entry.id === id);
+const { Content } = await render(note);
+---
+
+<Layout title={`${note.data.title} — Field Notes`}>
+  <article class="note-page">
+    <header class="note-header">
+      <div class="note-meta">
+        <span class="date">
+          {note.data.date.toLocaleDateString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          })}
+        </span>
+        <span class="separator">·</span>
+        <span class="location">{note.data.location}</span>
+      </div>
+      <h1>{note.data.title}</h1>
+      <p class="note-excerpt">{note.data.excerpt}</p>
+      {note.data.tags && note.data.tags.length > 0 && (
+        <div class="tags" style="margin-top: 1rem;">
+          {note.data.tags.map((tag) => (
+            <span class="tag">{tag}</span>
+          ))}
+        </div>
+      )}
+    </header>
+
+    <div class="note-content">
+      <Content />
+    </div>
+
+    <footer class="note-footer">
+      <a href="/" class="back-link">Back to journal</a>
+    </footer>
+  </article>
+</Layout>
