@@ -32,13 +32,13 @@ const { Content } = await render(note);
       </div>
       <h1>{note.data.title}</h1>
       <p class="note-excerpt">{note.data.excerpt}</p>
-      {note.data.tags && note.data.tags.length > 0 && (
-        <div class="tags" style="margin-top: 1rem;">
-          {note.data.tags.map((tag) => (
-            <span class="tag">{tag}</span>
-          ))}
-        </div>
-      )}
+            {note.data.tags && note.data.tags.length > 0 && (
+              <div class="tags">
+                {note.data.tags.map((tag) => (
+                  <span class="tag">{tag}</span>
+                ))}
+              </div>
+            )}
     </header>
 
     <div class="note-content">
@@ -50,3 +50,23 @@ const { Content } = await render(note);
     </footer>
   </article>
 </Layout>
+
+<style>
+  .note-header .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+    margin-top: var(--space-md);
+  }
+
+  .note-header .tag {
+    font-size: 0.75rem;
+    font-family: var(--font-heading);
+    color: var(--color-sepia);
+    background: var(--color-paper-dark);
+    padding: 2px 10px;
+    border-radius: 1px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+</style>
