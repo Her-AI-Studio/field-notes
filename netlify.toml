@@ -1,0 +1,8 @@
+# Octokit's dependency tree includes packages (like json-with-bigint)
+# that Netlify's default esbuild function bundler doesn't always pick up
+# via static analysis, even though they're genuinely required at runtime.
+# included_files forces them into the deployed bundle regardless of what
+# esbuild's static trace finds.
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["node_modules/json-with-bigint/**"]
