@@ -1,14 +1,16 @@
-// @octokit/rest ships as an ESM-only package -- require() can't load it
-// from this CommonJS function (that's the "require() of ES Module ...
-// not supported" error). A dynamic import() works from CJS regardless
-// of the target package's module format, so Octokit is constructed
-// inside the handler instead of at module load time.
+// This repo's package.json has "type": "module", so Netlify treats every
+// .js file here as an ES module -- exports.handler/require() don't exist
+// in that scope (that's the "module is not defined" error). Written as
+// real ESM below: static import, export const handler. This also means
+// @octokit/rest (itself ESM-only) can be imported normally, no dynamic
+// import() workaround needed.
+import { Octokit } from "@octokit/rest";
+
 const OWNER = "Her-AI-Studio";
 const REPO = "field-notes";
 const BASE_BRANCH = "main";
 
-exports.handler = async (event) => {
-  const { Octokit } = await import("@octokit/rest");
+export const handler = async (event) => {
   const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
 
   if (event.httpMethod !== "POST") {
