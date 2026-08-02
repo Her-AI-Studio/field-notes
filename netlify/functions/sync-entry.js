@@ -127,7 +127,7 @@ export const handler = async (event) => {
       `location: "${locality || "Unknown"}"`,
       `excerpt: "${(note || "").slice(0, 140).replace(/"/g, '\\"')}"`,
       imagePath ? `image: "/${imagePath.replace("public/", "")}"` : null,
-      `tags: ["field-note"]`,
+      `tags: ["field-note", "community-submission"]`,
       "---",
       "",
       ...bodyLines,
