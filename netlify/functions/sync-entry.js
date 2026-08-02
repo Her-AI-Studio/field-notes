@@ -1,11 +1,16 @@
-const { Octokit } = require("@octokit/rest");
-
-const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+// @octokit/rest ships as an ESM-only package -- require() can't load it
+// from this CommonJS function (that's the "require() of ES Module ...
+// not supported" error). A dynamic import() works from CJS regardless
+// of the target package's module format, so Octokit is constructed
+// inside the handler instead of at module load time.
 const OWNER = "Her-AI-Studio";
 const REPO = "field-notes";
 const BASE_BRANCH = "main";
 
 exports.handler = async (event) => {
+  const { Octokit } = await import("@octokit/rest");
+  const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
+
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: "Method Not Allowed" };
   }
