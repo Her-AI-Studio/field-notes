@@ -75,7 +75,25 @@ export const handler = async (event) => {
     }
 
     // 4. Commit the markdown note onto the same branch, matching the
-    // site's existing content-collection frontmatter schema.
+    // site's existing content-collection frontmatter schema. weather/
+    // habitat are full sentences, not keywords -- they don't belong in
+    // tags (whatever the site does with that array clearly wasn't built
+    // for long freeform text, e.g. joining with no separator). They're
+    // rendered instead as labeled lines in the body, same shape as the
+    // on-device journal detail view. The photo is embedded directly in
+    // the body too, alongside the sketch, rather than relying only on
+    // the "image" frontmatter field -- that guarantees it's visible
+    // regardless of whether the site's layout uses that field at all.
+    const bodyLines = [
+      note || "",
+      "",
+      locality ? `**Locality:** ${locality}` : null,
+      weather ? `**Weather:** ${weather}` : null,
+      habitat ? `**Habitat:** ${habitat}` : null,
+      imagePath ? `\n![photo](/${imagePath.replace("public/", "")})` : null,
+      sketchPath ? `\n![sketch](/${sketchPath.replace("public/", "")})` : null,
+    ].filter((line) => line !== null);
+
     const frontmatter = [
       "---",
       `title: "${catalog_no} field observation"`,
@@ -83,12 +101,11 @@ export const handler = async (event) => {
       `location: "${locality || "Unknown"}"`,
       `excerpt: "${(note || "").slice(0, 140).replace(/"/g, '\\"')}"`,
       imagePath ? `image: "/${imagePath.replace("public/", "")}"` : null,
-      `tags: ["${weather || "field"}", "${habitat || "observation"}"]`,
+      `tags: ["field-note"]`,
       "---",
       "",
-      note || "",
-      sketchPath ? `\n![sketch](/${sketchPath.replace("public/", "")})` : null,
-    ].filter(Boolean).join("\n");
+      ...bodyLines,
+    ].filter((line) => line !== null).join("\n");
 
     await octokit.repos.createOrUpdateFileContents({
       owner: OWNER, repo: REPO, branch: branchName,
