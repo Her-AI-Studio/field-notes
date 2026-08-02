@@ -10,6 +10,32 @@ const OWNER = "Her-AI-Studio";
 const REPO = "field-notes";
 const BASE_BRANCH = "main";
 
+// GitHub's Contents API requires the current file's sha when a path
+// already exists on the target branch/ref, and rejects the write if a
+// sha is passed for a path that's genuinely new. Since the same catalog
+// number can get resynced (testing, retries after a partial failure)
+// and may have already landed on main from an earlier merge, every
+// write here checks for an existing sha first rather than assuming
+// create vs. update based on convention alone.
+async function upsertFile(octokit, { path, branch, message, content }) {
+  let sha;
+  try {
+    const { data } = await octokit.repos.getContent({
+      owner: OWNER, repo: REPO, path, ref: branch,
+    });
+    sha = Array.isArray(data) ? undefined : data.sha;
+  } catch (err) {
+    if (err.status !== 404) throw err;
+    // 404 means the path doesn't exist yet on this branch -- a real
+    // create, no sha needed.
+  }
+
+  return octokit.repos.createOrUpdateFileContents({
+    owner: OWNER, repo: REPO, branch, path, message, content,
+    ...(sha ? { sha } : {}),
+  });
+}
+
 export const handler = async (event) => {
   const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
 
@@ -56,8 +82,8 @@ export const handler = async (event) => {
     let imagePath = null;
     if (photo) {
       imagePath = `public/images/${slug}.jpg`;
-      await octokit.repos.createOrUpdateFileContents({
-        owner: OWNER, repo: REPO, branch: branchName, path: imagePath,
+      await upsertFile(octokit, {
+        branch: branchName, path: imagePath,
         message: `Add photo for ${catalog_no}`,
         content: photo, // already base64 from the device
       });
@@ -67,8 +93,8 @@ export const handler = async (event) => {
     let sketchPath = null;
     if (sketch) {
       sketchPath = `public/images/${slug}-sketch.png`;
-      await octokit.repos.createOrUpdateFileContents({
-        owner: OWNER, repo: REPO, branch: branchName, path: sketchPath,
+      await upsertFile(octokit, {
+        branch: branchName, path: sketchPath,
         message: `Add sketch for ${catalog_no}`,
         content: sketch,
       });
@@ -107,9 +133,8 @@ export const handler = async (event) => {
       ...bodyLines,
     ].filter((line) => line !== null).join("\n");
 
-    await octokit.repos.createOrUpdateFileContents({
-      owner: OWNER, repo: REPO, branch: branchName,
-      path: `src/content/notes/${slug}.md`,
+    await upsertFile(octokit, {
+      branch: branchName, path: `src/content/notes/${slug}.md`,
       message: `Sync entry ${catalog_no}`,
       content: Buffer.from(frontmatter).toString("base64"),
     });
