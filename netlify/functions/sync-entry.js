@@ -181,19 +181,18 @@ export const handler = async (event) => {
       });
     }
 
-    // 3b. If no photo was provided, generate an AI field note sketch
-    // using Cloudinary's Image Generation API with the reference image.
+    // 3b. Generate an AI field note sketch using Cloudinary's Image
+    // Generation API with the reference image, whether or not a photo
+    // was also provided.
     let aiSketchPath = null;
-    if (!photo) {
-      const aiSketch = await generateAiSketch(note, slug);
-      if (aiSketch) {
-        aiSketchPath = `public/images/${slug}-ai.png`;
-        await upsertFile(octokit, {
-          branch: branchName, path: aiSketchPath,
-          message: `Add AI-generated sketch for ${catalog_no}`,
-          content: aiSketch,
-        });
-      }
+    const aiSketch = await generateAiSketch(note, slug);
+    if (aiSketch) {
+      aiSketchPath = `public/images/${slug}-ai.png`;
+      await upsertFile(octokit, {
+        branch: branchName, path: aiSketchPath,
+        message: `Add AI-generated sketch for ${catalog_no}`,
+        content: aiSketch,
+      });
     }
 
     // 4. Commit the markdown note onto the same branch, matching the
@@ -254,7 +253,7 @@ export const handler = async (event) => {
         `**Locality:** ${locality || "\u2014"}`,
         `**Weather:** ${weather || "\u2014"}`,
         `**Habitat:** ${habitat || "\u2014"}`,
-        aiSketchPath ? "\n_AI-generated sketch included (no photo submitted)._" : null,
+        aiSketchPath ? "\n_AI-generated sketch included._" : null,
       ].filter((line) => line !== null).join("\n"),
       labels: ["device-submission"],
     }).catch(async (err) => {
@@ -273,7 +272,7 @@ export const handler = async (event) => {
           `**Locality:** ${locality || "\u2014"}`,
           `**Weather:** ${weather || "\u2014"}`,
           `**Habitat:** ${habitat || "\u2014"}`,
-          aiSketchPath ? "\n_AI-generated sketch included (no photo submitted)._" : null,
+          aiSketchPath ? "\n_AI-generated sketch included._" : null,
         ].filter((line) => line !== null).join("\n"),
       });
       return { data: fallbackPr };
