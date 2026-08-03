@@ -1,0 +1,153 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="About — Field Notes">
+  <div class="container">
+    <section class="about-hero">
+      <h1>About Field Notes</h1>
+      <p class="handwritten">An open journal of the natural world</p>
+    </section>
+
+    <section class="prose">
+      <p>
+        <strong>Field Notes</strong> is a digital collection of observations from the natural world — field
+        records, surveys, sketches, and quiet discoveries, shared openly with anyone who cares to read them.
+      </p>
+      <p>
+        Every note here began outdoors. A hawk crossing a river valley. The careful architecture of a dune
+        grass community. The sound of insects on a June night. These are the small, specific moments that a
+        naturalist carries home in a field bag, transcribed to paper while the details are still fresh.
+      </p>
+    </section>
+
+    <section class="prose">
+      <h2>What you'll find here</h2>
+      <ul>
+        <li><strong>Field observations</strong> — detailed records of species, behavior, and encounters in the wild.</li>
+        <li><strong>Surveys & records</strong> — systematic notes on the plants and animals of a particular place.</li>
+        <li><strong>Seasonal records</strong> — phenology, movement patterns, and the slow changes of the landscape.</li>
+      </ul>
+      <p>
+        Notes are written in the tradition of the field journal: dated, located, and recorded with enough
+        detail that another person could return to the same place and find the same things.
+      </p>
+    </section>
+
+    <section class="prose">
+      <h2>Why public?</h2>
+      <p>
+        Observation is a shared practice. The notes of earlier naturalists — often collected over decades —
+        remain a gift to those who follow. This journal is offered in the same spirit: a working record that
+        anyone may read, use, and build upon. Whether you are a seasoned field observer or someone simply
+        curious about the world outdoors, there is a place for you here.
+      </p>
+    </section>
+
+    <section class="prose">
+      <h2>Read the journal</h2>
+      <p>
+        The most recent observations live on the <a href="/">journal</a> page, newest first. Each entry
+        records where it was made, when it was made, and what was seen.
+      </p>
+    </section>
+
+    <div class="signature">
+      <span class="stars">✦ ✦ ✦</span>
+      <span class="sig">— The Field Notes contributors</span>
+    </div>
+  </div>
+</Layout>
+
+<style>
+  .about-hero {
+    text-align: center;
+    padding: var(--space-3xl) 0 var(--space-xl);
+    max-width: var(--content-width);
+    margin: 0 auto;
+  }
+
+  .about-hero h1 {
+    font-size: 2.75rem;
+    margin-bottom: var(--space-md);
+  }
+
+  .about-hero .handwritten {
+    font-family: var(--font-handwritten);
+    font-size: 1.35rem;
+    color: var(--color-sepia);
+    margin: 0;
+  }
+
+  .prose {
+    max-width: var(--content-width);
+    margin: 0 auto var(--space-2xl);
+  }
+
+  .prose h2 {
+    font-size: 1.6rem;
+    margin-bottom: var(--space-lg);
+    position: relative;
+    padding-bottom: var(--space-sm);
+  }
+
+  .prose h2::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 3rem;
+    height: 2px;
+    background: var(--color-sepia-light);
+    opacity: 0.5;
+  }
+
+  .prose p {
+    color: var(--color-ink);
+    font-size: 1.075rem;
+  }
+
+  .prose ul {
+    margin-bottom: var(--space-lg);
+    padding-left: var(--space-xl);
+  }
+
+  .prose li {
+    margin-bottom: var(--space-sm);
+    color: var(--color-ink);
+  }
+
+  .prose a {
+    color: var(--color-accent-dark);
+    font-style: italic;
+  }
+
+  .signature {
+    text-align: center;
+    padding: var(--space-xl) 0 var(--space-3xl);
+  }
+
+  .signature .stars {
+    display: block;
+    font-size: 1.2rem;
+    color: var(--color-sepia-light);
+    opacity: 0.5;
+    margin-bottom: var(--space-sm);
+  }
+
+  .signature .sig {
+    font-family: var(--font-handwritten);
+    font-size: 1.25rem;
+    color: var(--color-ink-light);
+  }
+
+  @media (max-width: 768px) {
+    .about-hero h1 {
+      font-size: 2.2rem;
+    }
+
+    .prose {
+      padding: 0 var(--space-md);
+    }
+  }
+</style>
