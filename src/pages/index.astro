@@ -15,10 +15,17 @@ notes.sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
 
     {notes.length > 0 ? (
       <div class="card-grid">
-        {notes.map((note) => (
+        {notes.map((note) => {
+          // AI-generated sketches are embedded in the note body by the sync
+          // function (`![AI sketch](/images/{slug}-ai.png)`). Prefer that on
+          // the card so the generated sketch is visible even when the note
+          // also has a photo; fall back to the frontmatter image otherwise.
+          const aiImage = note.body?.match(/!\[AI sketch\]\(([^)]+)\)/)?.[1];
+          const cardImage = aiImage || note.data.image;
+          return (
           <article class="note-card">
-            {note.data.image && (
-              <img src={note.data.image} alt="" class="note-card-image" loading="lazy" />
+            {cardImage && (
+              <img src={cardImage} alt="" class="note-card-image" loading="lazy" />
             )}
             <div class="note-card-meta">
               <span class="date">{note.data.date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
@@ -36,7 +43,8 @@ notes.sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
             )}
             <a href={`/notes/${note.id}/`} class="read-more">Read field notes</a>
           </article>
-        ))}
+          );
+        })}
       </div>
     ) : (
       <div class="empty-state">
