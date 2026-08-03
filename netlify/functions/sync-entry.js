@@ -10,6 +10,15 @@ const OWNER = "Her-AI-Studio";
 const REPO = "field-notes";
 const BASE_BRANCH = "main";
 
+// Cloudinary Image Generation API configuration.
+// The reference image (ai-field-notes_zqownu.jpg) is used as a style guide
+// for AI-generated field note sketches, keeping the visual aesthetic
+// consistent across all generated images.
+const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME;
+const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY;
+const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET;
+const REFERENCE_IMAGE_URL = "https://res.cloudinary.com/jen-demos/image/upload/v1785719484/ai-field-notes_zqownu.jpg";
+
 // GitHub's Contents API requires the current file's sha when a path
 // already exists on the target branch/ref, and rejects the write if a
 // sha is passed for a path that's genuinely new. Since the same catalog
@@ -34,6 +43,78 @@ async function upsertFile(octokit, { path, branch, message, content }) {
     owner: OWNER, repo: REPO, branch, path, message, content,
     ...(sha ? { sha } : {}),
   });
+}
+
+// Generate an AI field note sketch using Cloudinary's Image Generation API.
+// Uses the image_to_image endpoint with the reference image as a style guide.
+// Returns the generated image as a base64 string, or null if generation fails.
+async function generateAiSketch(noteText, slug) {
+  if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
+    console.warn("Cloudinary credentials not configured; skipping AI sketch generation");
+    return null;
+  }
+
+  const prompt = [
+    "Create a field sketch illustration in the style of the reference image [1].",
+    "The sketch should depict:",
+    noteText || "A natural world observation",
+    "Use a vintage field journal aesthetic with earthy tones, hand-drawn quality, and scientific illustration style.",
+  ].join(" ");
+
+  try {
+    const response = await fetch(
+      `https://api.cloudinary.com/v2/generate/${CLOUDINARY_CLOUD_NAME}/image_to_image`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Basic ${Buffer.from(`${CLOUDINARY_API_KEY}:${CLOUDINARY_API_SECRET}`).toString("base64")}`,
+        },
+        body: JSON.stringify({
+          prompt,
+          reference_images: [
+            {
+              source_type: "url",
+              url: REFERENCE_IMAGE_URL,
+            },
+          ],
+          model: {
+            family: "nano-banana",
+            tier: "premium",
+          },
+          target: {
+            target_type: "managed_asset",
+            public_id: `field-notes/${slug}-ai`,
+          },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Cloudinary image generation failed (${response.status}): ${errorText}`);
+      return null;
+    }
+
+    const data = await response.json();
+    const asset = data?.data?.assets?.[0];
+    if (!asset?.storage?.secure_url) {
+      console.error("Cloudinary image generation returned no asset URL");
+      return null;
+    }
+
+    // Download the generated image and return it as base64 for committing to the repo
+    const imageResponse = await fetch(asset.storage.secure_url);
+    if (!imageResponse.ok) {
+      console.error(`Failed to download generated image (${imageResponse.status})`);
+      return null;
+    }
+    const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+    return imageBuffer.toString("base64");
+  } catch (err) {
+    console.error("Cloudinary image generation error:", err.message);
+    return null;
+  }
 }
 
 export const handler = async (event) => {
@@ -100,6 +181,21 @@ export const handler = async (event) => {
       });
     }
 
+    // 3b. If no photo was provided, generate an AI field note sketch
+    // using Cloudinary's Image Generation API with the reference image.
+    let aiSketchPath = null;
+    if (!photo) {
+      const aiSketch = await generateAiSketch(note, slug);
+      if (aiSketch) {
+        aiSketchPath = `public/images/${slug}-ai.png`;
+        await upsertFile(octokit, {
+          branch: branchName, path: aiSketchPath,
+          message: `Add AI-generated sketch for ${catalog_no}`,
+          content: aiSketch,
+        });
+      }
+    }
+
     // 4. Commit the markdown note onto the same branch, matching the
     // site's existing content-collection frontmatter schema. weather/
     // habitat are full sentences, not keywords -- they don't belong in
@@ -118,6 +214,7 @@ export const handler = async (event) => {
       habitat ? `**Habitat:** ${habitat}` : null,
       imagePath ? `\n![photo](/${imagePath.replace("public/", "")})` : null,
       sketchPath ? `\n![sketch](/${sketchPath.replace("public/", "")})` : null,
+      aiSketchPath ? `\n![AI sketch](/${aiSketchPath.replace("public/", "")})` : null,
     ].filter((line) => line !== null);
 
     const frontmatter = [
@@ -126,7 +223,11 @@ export const handler = async (event) => {
       `date: ${timestamp.slice(0, 10)}`,
       `location: "${locality || "Unknown"}"`,
       `excerpt: "${(note || "").slice(0, 140).replace(/"/g, '\\"')}"`,
-      imagePath ? `image: "/${imagePath.replace("public/", "")}"` : null,
+      imagePath
+        ? `image: "/${imagePath.replace("public/", "")}"`
+        : aiSketchPath
+          ? `image: "/${aiSketchPath.replace("public/", "")}"`
+          : null,
       `tags: ["field-note", "community-submission"]`,
       "---",
       "",
@@ -153,7 +254,8 @@ export const handler = async (event) => {
         `**Locality:** ${locality || "\u2014"}`,
         `**Weather:** ${weather || "\u2014"}`,
         `**Habitat:** ${habitat || "\u2014"}`,
-      ].join("\n"),
+        aiSketchPath ? "\n_AI-generated sketch included (no photo submitted)._" : null,
+      ].filter((line) => line !== null).join("\n"),
       labels: ["device-submission"],
     }).catch(async (err) => {
       // labels: [...] on create() fails on some GitHub API versions if
@@ -171,14 +273,15 @@ export const handler = async (event) => {
           `**Locality:** ${locality || "\u2014"}`,
           `**Weather:** ${weather || "\u2014"}`,
           `**Habitat:** ${habitat || "\u2014"}`,
-        ].join("\n"),
+          aiSketchPath ? "\n_AI-generated sketch included (no photo submitted)._" : null,
+        ].filter((line) => line !== null).join("\n"),
       });
       return { data: fallbackPr };
     });
 
     return {
       statusCode: 201,
-      body: JSON.stringify({ success: true, catalog_no, pr_url: pr.html_url }),
+      body: JSON.stringify({ success: true, catalog_no, pr_url: pr.html_url, ai_sketch: !!aiSketchPath }),
     };
   } catch (err) {
     console.error(err);

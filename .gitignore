@@ -17,6 +17,9 @@ pnpm-debug.log*
 .env
 .env.production
 
+# agent skill copies for cloudinary
+.agents/skills/cloudinary-*/
+
 # macOS-specific files
 .DS_Store
 

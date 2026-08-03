@@ -1,0 +1,44 @@
+{
+  "servers": {
+    "cloudinary-asset-mgmt": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "--registry",
+        "https://registry.npmjs.org",
+        "--package",
+        "@cloudinary/asset-management",
+        "--",
+        "mcp",
+        "start",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "CLOUDINARY_CLOUD_NAME": "${CLOUDINARY_CLOUD_NAME}",
+        "CLOUDINARY_API_KEY": "${CLOUDINARY_API_KEY}",
+        "CLOUDINARY_API_SECRET": "${CLOUDINARY_API_SECRET}"
+      }
+    },
+    "cloudinary-env-config": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "--registry",
+        "https://registry.npmjs.org",
+        "--package",
+        "@cloudinary/environment-config",
+        "--",
+        "mcp",
+        "start",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "CLOUDINARY_CLOUD_NAME": "${CLOUDINARY_CLOUD_NAME}",
+        "CLOUDINARY_API_KEY": "${CLOUDINARY_API_KEY}",
+        "CLOUDINARY_API_SECRET": "${CLOUDINARY_API_SECRET}"
+      }
+    }
+  }
+}
