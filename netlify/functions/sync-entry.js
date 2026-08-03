@@ -47,11 +47,13 @@ async function upsertFile(octokit, { path, branch, message, content }) {
 
 // Generate an AI field note sketch using Cloudinary's Image Generation API.
 // Uses the image_to_image endpoint with the reference image as a style guide.
-// Returns the generated image as a base64 string, or null if generation fails.
+// Returns { ok: true, base64 } on success, or { ok: false, error } carrying
+// the reason so callers can surface why generation failed instead of
+// silently omitting the image.
 async function generateAiSketch(noteText, slug) {
   if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
     console.warn("Cloudinary credentials not configured; skipping AI sketch generation");
-    return null;
+    return { ok: false, error: "Cloudinary credentials not configured in Netlify environment" };
   }
 
   const prompt = [
@@ -93,27 +95,27 @@ async function generateAiSketch(noteText, slug) {
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`Cloudinary image generation failed (${response.status}): ${errorText}`);
-      return null;
+      return { ok: false, error: `Cloudinary image generation failed (${response.status}): ${errorText.slice(0, 300)}` };
     }
 
     const data = await response.json();
     const asset = data?.data?.assets?.[0];
     if (!asset?.storage?.secure_url) {
       console.error("Cloudinary image generation returned no asset URL");
-      return null;
+      return { ok: false, error: "Cloudinary image generation returned no asset URL" };
     }
 
     // Download the generated image and return it as base64 for committing to the repo
     const imageResponse = await fetch(asset.storage.secure_url);
     if (!imageResponse.ok) {
       console.error(`Failed to download generated image (${imageResponse.status})`);
-      return null;
+      return { ok: false, error: `Failed to download generated image (${imageResponse.status})` };
     }
     const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
-    return imageBuffer.toString("base64");
+    return { ok: true, base64: imageBuffer.toString("base64") };
   } catch (err) {
     console.error("Cloudinary image generation error:", err.message);
-    return null;
+    return { ok: false, error: err.message };
   }
 }
 
@@ -185,14 +187,17 @@ export const handler = async (event) => {
     // Generation API with the reference image, whether or not a photo
     // was also provided.
     let aiSketchPath = null;
-    const aiSketch = await generateAiSketch(note, slug);
-    if (aiSketch) {
+    let aiSketchError = null;
+    const aiResult = await generateAiSketch(note, slug);
+    if (aiResult.ok) {
       aiSketchPath = `public/images/${slug}-ai.png`;
       await upsertFile(octokit, {
         branch: branchName, path: aiSketchPath,
         message: `Add AI-generated sketch for ${catalog_no}`,
-        content: aiSketch,
+        content: aiResult.base64,
       });
+    } else {
+      aiSketchError = aiResult.error;
     }
 
     // 4. Commit the markdown note onto the same branch, matching the
@@ -280,7 +285,11 @@ export const handler = async (event) => {
 
     return {
       statusCode: 201,
-      body: JSON.stringify({ success: true, catalog_no, pr_url: pr.html_url, ai_sketch: !!aiSketchPath }),
+      body: JSON.stringify({
+        success: true, catalog_no, pr_url: pr.html_url,
+        ai_sketch: !!aiSketchPath,
+        ...(aiSketchError ? { ai_sketch_error: aiSketchError } : {}),
+      }),
     };
   } catch (err) {
     console.error(err);
