@@ -161,10 +161,12 @@ export const handler = async (event) => {
       sha: mainRef.object.sha,
     });
 
-    // 2. Commit the photo onto that branch, if present
+    // 2. Commit the photo onto that branch, if present.
+    //    Images live in src/assets/images so Astro's Image component / content
+    //    collections can optimize them at build time (format, resize, srcset).
     let imagePath = null;
     if (photo) {
-      imagePath = `public/images/${slug}.jpg`;
+      imagePath = `src/assets/images/${slug}.jpg`;
       await upsertFile(octokit, {
         branch: branchName, path: imagePath,
         message: `Add photo for ${catalog_no}`,
@@ -175,7 +177,7 @@ export const handler = async (event) => {
     // 3. Commit the sketch onto that branch, if present
     let sketchPath = null;
     if (sketch) {
-      sketchPath = `public/images/${slug}-sketch.png`;
+      sketchPath = `src/assets/images/${slug}-sketch.png`;
       await upsertFile(octokit, {
         branch: branchName, path: sketchPath,
         message: `Add sketch for ${catalog_no}`,
@@ -190,7 +192,7 @@ export const handler = async (event) => {
     let aiSketchError = null;
     const aiResult = await generateAiSketch(note, slug);
     if (aiResult.ok) {
-      aiSketchPath = `public/images/${slug}-ai.png`;
+      aiSketchPath = `src/assets/images/${slug}-ai.png`;
       await upsertFile(octokit, {
         branch: branchName, path: aiSketchPath,
         message: `Add AI-generated sketch for ${catalog_no}`,
@@ -210,15 +212,21 @@ export const handler = async (event) => {
     // the body too, alongside the sketch, rather than relying only on
     // the "image" frontmatter field -- that guarantees it's visible
     // regardless of whether the site's layout uses that field at all.
+    // Markdown lives in src/content/notes/, so local image paths are relative
+    // to that directory ("../../assets/images/...") -- Astro detects these as
+    // local images and optimizes them at build time.
+    const markdownImagePath = (filePath) =>
+      `../../${filePath.replace("src/", "")}`;
+
     const bodyLines = [
       note || "",
       "",
       locality ? `**Locality:** ${locality}` : null,
       weather ? `**Weather:** ${weather}` : null,
       habitat ? `**Habitat:** ${habitat}` : null,
-      imagePath ? `\n![photo](/${imagePath.replace("public/", "")})` : null,
-      sketchPath ? `\n![sketch](/${sketchPath.replace("public/", "")})` : null,
-      aiSketchPath ? `\n![AI sketch](/${aiSketchPath.replace("public/", "")})` : null,
+      imagePath ? `\n![photo](${markdownImagePath(imagePath)})` : null,
+      sketchPath ? `\n![sketch](${markdownImagePath(sketchPath)})` : null,
+      aiSketchPath ? `\n![AI sketch](${markdownImagePath(aiSketchPath)})` : null,
     ].filter((line) => line !== null);
 
     const frontmatter = [
@@ -228,9 +236,9 @@ export const handler = async (event) => {
       `location: "${locality || "Unknown"}"`,
       `excerpt: "${(note || "").slice(0, 140).replace(/"/g, '\\"')}"`,
       imagePath
-        ? `image: "/${imagePath.replace("public/", "")}"`
+        ? `image: "${markdownImagePath(imagePath)}"`
         : aiSketchPath
-          ? `image: "/${aiSketchPath.replace("public/", "")}"`
+          ? `image: "${markdownImagePath(aiSketchPath)}"`
           : null,
       `tags: ["field-note", "community-submission"]`,
       "---",

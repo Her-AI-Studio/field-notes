@@ -1,9 +1,31 @@
 ---
+import { Image } from 'astro:assets';
 import Layout from '../layouts/Layout.astro';
 import { getCollection } from 'astro:content';
 
 const notes = await getCollection('notes');
 notes.sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
+
+// Eagerly import every image in src/assets so Astro can optimize them at build time.
+// Keys look like "../assets/images/blm-0011.jpg" relative to this page.
+const imageImports = import.meta.glob<ImageMetadata>(
+  '../assets/images/*.{png,jpg,jpeg,webp}',
+  { eager: true, import: 'default' }
+);
+
+// Resolve the card image for a note. AI-generated sketches are embedded in the
+// note body by the sync function (`![AI sketch](../../assets/images/{slug}-ai.png)`).
+// Prefer that on the card so the generated sketch is visible even when the note
+// also has a photo; fall back to the frontmatter image otherwise.
+function resolveCardImage(note: { body?: string; data: { image?: string } }) {
+  const bodyImage = note.body?.match(/!\[AI sketch\]\(([^)]+)\)/)?.[1];
+  const imagePath = bodyImage || note.data.image;
+  if (!imagePath) return null;
+  // Markdown paths are relative to src/content/notes/ ("../../assets/...") while
+  // the glob keys are relative to this page ("../assets/..."). Normalize.
+  const globKey = imagePath.replace(/^\.\.\/\.\.\//, '../');
+  return imageImports[globKey] ?? null;
+}
 ---
 
 <Layout title="Field Notes — A Collection of Observations">
@@ -15,17 +37,21 @@ notes.sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
 
     {notes.length > 0 ? (
       <div class="card-grid">
-        {notes.map((note) => {
-          // AI-generated sketches are embedded in the note body by the sync
-          // function (`![AI sketch](/images/{slug}-ai.png)`). Prefer that on
-          // the card so the generated sketch is visible even when the note
-          // also has a photo; fall back to the frontmatter image otherwise.
-          const aiImage = note.body?.match(/!\[AI sketch\]\(([^)]+)\)/)?.[1];
-          const cardImage = aiImage || note.data.image;
+        {notes.map((note, index) => {
+          const cardImage = resolveCardImage(note);
           return (
           <article class="note-card">
             {cardImage && (
-              <img src={cardImage} alt="" class="note-card-image" loading="lazy" />
+              <Image
+                src={cardImage}
+                alt=""
+                class="note-card-image"
+                width={680}
+                height={400}
+                fit="cover"
+                loading={index === 0 ? 'eager' : 'lazy'}
+                priority={index === 0}
+              />
             )}
             <div class="note-card-meta">
               <span class="date">{note.data.date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
@@ -41,7 +67,7 @@ notes.sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
                 ))}
               </div>
             )}
-            <a href={`/notes/${note.id}/`} class="read-more">Read field notes</a>
+            <a href={`/notes/${note.id}/`} class="read-more">Read field note</a>
           </article>
           );
         })}
