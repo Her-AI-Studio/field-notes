@@ -2,11 +2,15 @@
 import { Image } from 'astro:assets';
 import Layout from '../layouts/Layout.astro';
 import { getCollection } from 'astro:content';
+import { cldCardUrl } from '../utils/cloudinary';
 
 const notes = await getCollection('notes');
 notes.sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
 
-// Eagerly import every image in src/assets so Astro can optimize them at build time.
+// Eagerly import every image in src/assets so Astro can optimize remaining
+// local images at build time. New submissions are stored in Cloudinary and
+// referenced by URL in the markdown, so this only serves legacy/hand-added
+// notes that still point at local files.
 // Keys look like "../assets/images/blm-0011.jpg" relative to this page.
 const imageImports = import.meta.glob<ImageMetadata>(
   '../assets/images/*.{png,jpg,jpeg,webp}',
@@ -14,17 +18,24 @@ const imageImports = import.meta.glob<ImageMetadata>(
 );
 
 // Resolve the card image for a note. AI-generated sketches are embedded in the
-// note body by the sync function (`![AI sketch](../../assets/images/{slug}-ai.png)`).
+// note body by the sync function (`![AI sketch](https://res.cloudinary.com/...)`).
 // Prefer that on the card so the generated sketch is visible even when the note
-// also has a photo; fall back to the frontmatter image otherwise.
+// also has a photo; fall back to the frontmatter image otherwise. Cloudinary
+// delivery URLs get an on-the-fly card crop + optimization transformation;
+// local paths resolve through Astro's image pipeline.
 function resolveCardImage(note: { body?: string; data: { image?: string } }) {
   const bodyImage = note.body?.match(/!\[AI sketch\]\(([^)]+)\)/)?.[1];
   const imagePath = bodyImage || note.data.image;
   if (!imagePath) return null;
+  if (/^https?:\/\//.test(imagePath)) {
+    // Remote (Cloudinary) delivery -- optimize at the CDN, not at build time.
+    return { remote: cldCardUrl(imagePath) };
+  }
   // Markdown paths are relative to src/content/notes/ ("../../assets/...") while
   // the glob keys are relative to this page ("../assets/..."). Normalize.
   const globKey = imagePath.replace(/^\.\.\/\.\.\//, '../');
-  return imageImports[globKey] ?? null;
+  const local = imageImports[globKey] ?? null;
+  return local ? { local } : null;
 }
 ---
 
@@ -41,9 +52,19 @@ function resolveCardImage(note: { body?: string; data: { image?: string } }) {
           const cardImage = resolveCardImage(note);
           return (
           <article class="note-card">
-            {cardImage && (
+            {cardImage?.remote && (
+              <img
+                src={cardImage.remote}
+                alt=""
+                class="note-card-image"
+                width={680}
+                height={400}
+                loading={index === 0 ? 'eager' : 'lazy'}
+              />
+            )}
+            {cardImage?.local && (
               <Image
-                src={cardImage}
+                src={cardImage.local}
                 alt=""
                 class="note-card-image"
                 width={680}

@@ -10,14 +10,33 @@ const OWNER = "Her-AI-Studio";
 const REPO = "field-notes";
 const BASE_BRANCH = "main";
 
-// Cloudinary Image Generation API configuration.
-// The reference image (ai-field-notes_zqownu.jpg) is used as a style guide
-// for AI-generated field note sketches, keeping the visual aesthetic
-// consistent across all generated images.
+// Cloudinary configuration. All entry media (photos, sketches, AI sketches)
+// is stored in Cloudinary and delivered back to the web app through
+// Cloudinary's CDN so it can be optimized on the fly (format, quality,
+// resizing) instead of committing image binaries to this repo.
 const CLOUDINARY_CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME;
 const CLOUDINARY_API_KEY = process.env.CLOUDINARY_API_KEY;
 const CLOUDINARY_API_SECRET = process.env.CLOUDINARY_API_SECRET;
-const REFERENCE_IMAGE_URL = "https://res.cloudinary.com/jen-demos/image/upload/v1785719484/ai-field-notes_zqownu.jpg";
+const CLOUDINARY_FOLDER = "field-notes";
+// The reference image is used as a style guide for AI-generated field note
+// sketches, keeping the visual aesthetic consistent across all generated images.
+const REFERENCE_IMAGE_URL = "https://res.cloudinary.com/uq7m2iiz/image/upload/v1787166592/ai-field-notes_jmna4u.jpg";
+
+function cloudinaryConfigured() {
+  return Boolean(CLOUDINARY_CLOUD_NAME && CLOUDINARY_API_KEY && CLOUDINARY_API_SECRET);
+}
+
+// Insert an on-the-fly transformation into a Cloudinary delivery URL, just
+// before the version segment ("/v1234/"). Because the transformation is a
+// single path segment with no slashes and the version always begins with
+// "/v<digits>/", this reliably targets the right spot whether or not the
+// URL already carries a transformation.
+function withTransformation(secureUrl, transformation) {
+  return secureUrl.replace(
+    /(\/upload\/)(?:[^/]+\/)?(v\d+\/)/,
+    `$1${transformation}/$2`
+  );
+}
 
 // GitHub's Contents API requires the current file's sha when a path
 // already exists on the target branch/ref, and rejects the write if a
@@ -47,11 +66,12 @@ async function upsertFile(octokit, { path, branch, message, content }) {
 
 // Generate an AI field note sketch using Cloudinary's Image Generation API.
 // Uses the image_to_image endpoint with the reference image as a style guide.
-// Returns { ok: true, base64 } on success, or { ok: false, error } carrying
-// the reason so callers can surface why generation failed instead of
-// silently omitting the image.
+// The generated image is stored in Cloudinary as a managed asset; this returns
+// { ok: true, url } with its secure_url so the site can deliver it straight
+// from Cloudinary, or { ok: false, error } carrying the reason so callers can
+// surface why generation failed instead of silently omitting the image.
 async function generateAiSketch(noteText, slug) {
-  if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
+  if (!cloudinaryConfigured()) {
     console.warn("Cloudinary credentials not configured; skipping AI sketch generation");
     return { ok: false, error: "Cloudinary credentials not configured in Netlify environment" };
   }
@@ -105,16 +125,58 @@ async function generateAiSketch(noteText, slug) {
       return { ok: false, error: "Cloudinary image generation returned no asset URL" };
     }
 
-    // Download the generated image and return it as base64 for committing to the repo
-    const imageResponse = await fetch(asset.storage.secure_url);
-    if (!imageResponse.ok) {
-      console.error(`Failed to download generated image (${imageResponse.status})`);
-      return { ok: false, error: `Failed to download generated image (${imageResponse.status})` };
-    }
-    const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
-    return { ok: true, base64: imageBuffer.toString("base64") };
+    // The asset is already stored in Cloudinary as a managed asset (see the
+    // image_to_image "target" above) -- deliver it from there instead of
+    // downloading a copy and committing it to the repo.
+    return { ok: true, url: asset.storage.secure_url };
   } catch (err) {
     console.error("Cloudinary image generation error:", err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+// Upload a base64-encoded image to Cloudinary under the given public_id
+// (namespaced into CLOUDINARY_FOLDER) and return its secure delivery URL.
+// Uses Basic Auth over the Upload API -- simpler than a hand-rolled
+// signature for server-side calls, and the same auth scheme already used for
+// image generation. Returns { ok: true, url } or { ok: false, error }.
+async function uploadToCloudinary(base64, publicId, mimeType) {
+  if (!cloudinaryConfigured()) {
+    return { ok: false, error: "Cloudinary credentials not configured in Netlify environment" };
+  }
+
+  try {
+    const form = new FormData();
+    form.append("file", `data:${mimeType};base64,${base64}`);
+    form.append("public_id", publicId);
+    // Resyncs of the same catalog number overwrite the previous asset in
+    // place (same public_id) rather than stacking duplicate uploads.
+    form.append("overwrite", "true");
+
+    const response = await fetch(
+      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${CLOUDINARY_API_KEY}:${CLOUDINARY_API_SECRET}`).toString("base64")}`,
+        },
+        body: form,
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Cloudinary upload failed (${response.status}): ${errorText}`);
+      return { ok: false, error: `Cloudinary upload failed (${response.status}): ${errorText.slice(0, 300)}` };
+    }
+
+    const data = await response.json();
+    if (!data?.secure_url) {
+      return { ok: false, error: "Cloudinary upload returned no secure_url" };
+    }
+    return { ok: true, url: data.secure_url };
+  } catch (err) {
+    console.error("Cloudinary upload error:", err.message);
     return { ok: false, error: err.message };
   }
 }
@@ -161,62 +223,57 @@ export const handler = async (event) => {
       sha: mainRef.object.sha,
     });
 
-    // 2. Commit the photo onto that branch, if present.
-    //    Images live in src/assets/images so Astro's Image component / content
-    //    collections can optimize them at build time (format, resize, srcset).
-    let imagePath = null;
+    // 2. Upload the photo to Cloudinary, if present. All entry media now
+    //    lives in Cloudinary -- the repo only stores the markdown, which
+    //    references Cloudinary delivery URLs. Delivering through Cloudinary's
+    //    CDN gives format/quality optimization and on-the-fly resizing for
+    //    free, and keeps image binaries out of git.
+    let photoUrl = null;
+    let photoError = null;
     if (photo) {
-      imagePath = `src/assets/images/${slug}.jpg`;
-      await upsertFile(octokit, {
-        branch: branchName, path: imagePath,
-        message: `Add photo for ${catalog_no}`,
-        content: photo, // already base64 from the device
-      });
+      const result = await uploadToCloudinary(photo, `${CLOUDINARY_FOLDER}/${slug}`, "image/jpeg");
+      if (result.ok) {
+        photoUrl = result.url;
+      } else {
+        photoError = result.error;
+      }
     }
 
-    // 3. Commit the sketch onto that branch, if present
-    let sketchPath = null;
+    // 3. Upload the hand-drawn sketch to Cloudinary, if present
+    let sketchUrl = null;
+    let sketchError = null;
     if (sketch) {
-      sketchPath = `src/assets/images/${slug}-sketch.png`;
-      await upsertFile(octokit, {
-        branch: branchName, path: sketchPath,
-        message: `Add sketch for ${catalog_no}`,
-        content: sketch,
-      });
+      const result = await uploadToCloudinary(sketch, `${CLOUDINARY_FOLDER}/${slug}-sketch`, "image/png");
+      if (result.ok) {
+        sketchUrl = result.url;
+      } else {
+        sketchError = result.error;
+      }
     }
 
     // 3b. Generate an AI field note sketch using Cloudinary's Image
     // Generation API with the reference image, whether or not a photo
-    // was also provided.
-    let aiSketchPath = null;
+    // was also provided. Already stored in Cloudinary as a managed asset.
+    let aiSketchUrl = null;
     let aiSketchError = null;
     const aiResult = await generateAiSketch(note, slug);
     if (aiResult.ok) {
-      aiSketchPath = `src/assets/images/${slug}-ai.png`;
-      await upsertFile(octokit, {
-        branch: branchName, path: aiSketchPath,
-        message: `Add AI-generated sketch for ${catalog_no}`,
-        content: aiResult.base64,
-      });
+      aiSketchUrl = aiResult.url;
     } else {
       aiSketchError = aiResult.error;
     }
 
     // 4. Commit the markdown note onto the same branch, matching the
-    // site's existing content-collection frontmatter schema. weather/
-    // habitat are full sentences, not keywords -- they don't belong in
-    // tags (whatever the site does with that array clearly wasn't built
-    // for long freeform text, e.g. joining with no separator). They're
-    // rendered instead as labeled lines in the body, same shape as the
-    // on-device journal detail view. The photo is embedded directly in
-    // the body too, alongside the sketch, rather than relying only on
-    // the "image" frontmatter field -- that guarantees it's visible
-    // regardless of whether the site's layout uses that field at all.
-    // Markdown lives in src/content/notes/, so local image paths are relative
-    // to that directory ("../../assets/images/...") -- Astro detects these as
-    // local images and optimizes them at build time.
-    const markdownImagePath = (filePath) =>
-      `../../${filePath.replace("src/", "")}`;
+    //    site's existing content-collection frontmatter schema. weather/
+    //    habitat are full sentences, not keywords -- they don't belong in
+    //    tags (whatever the site does with that array clearly wasn't built
+    //    for long freeform text, e.g. joining with no separator). They're
+    //    rendered instead as labeled lines in the body, same shape as the
+    //    on-device journal detail view. Images are embedded in the body as
+    //    Cloudinary delivery URLs with f_auto,q_auto baked in, so the CDN
+    //    serves the best format and quality per browser without the site
+    //    having to transform anything at build time.
+    const optimized = (url) => withTransformation(url, "f_auto,q_auto");
 
     const bodyLines = [
       note || "",
@@ -224,9 +281,9 @@ export const handler = async (event) => {
       locality ? `**Locality:** ${locality}` : null,
       weather ? `**Weather:** ${weather}` : null,
       habitat ? `**Habitat:** ${habitat}` : null,
-      imagePath ? `\n![photo](${markdownImagePath(imagePath)})` : null,
-      sketchPath ? `\n![sketch](${markdownImagePath(sketchPath)})` : null,
-      aiSketchPath ? `\n![AI sketch](${markdownImagePath(aiSketchPath)})` : null,
+      photoUrl ? `\n![photo](${optimized(photoUrl)})` : null,
+      sketchUrl ? `\n![sketch](${optimized(sketchUrl)})` : null,
+      aiSketchUrl ? `\n![AI sketch](${optimized(aiSketchUrl)})` : null,
     ].filter((line) => line !== null);
 
     const frontmatter = [
@@ -235,10 +292,10 @@ export const handler = async (event) => {
       `date: ${timestamp.slice(0, 10)}`,
       `location: "${locality || "Unknown"}"`,
       `excerpt: "${(note || "").slice(0, 140).replace(/"/g, '\\"')}"`,
-      imagePath
-        ? `image: "${markdownImagePath(imagePath)}"`
-        : aiSketchPath
-          ? `image: "${markdownImagePath(aiSketchPath)}"`
+      photoUrl
+        ? `image: "${optimized(photoUrl)}"`
+        : aiSketchUrl
+          ? `image: "${optimized(aiSketchUrl)}"`
           : null,
       `tags: ["field-note", "community-submission"]`,
       "---",
@@ -266,7 +323,7 @@ export const handler = async (event) => {
         `**Locality:** ${locality || "\u2014"}`,
         `**Weather:** ${weather || "\u2014"}`,
         `**Habitat:** ${habitat || "\u2014"}`,
-        aiSketchPath ? "\n_AI-generated sketch included._" : null,
+        aiSketchUrl ? "\n_AI-generated sketch included._" : null,
       ].filter((line) => line !== null).join("\n"),
       labels: ["device-submission"],
     }).catch(async (err) => {
@@ -285,7 +342,7 @@ export const handler = async (event) => {
           `**Locality:** ${locality || "\u2014"}`,
           `**Weather:** ${weather || "\u2014"}`,
           `**Habitat:** ${habitat || "\u2014"}`,
-          aiSketchPath ? "\n_AI-generated sketch included._" : null,
+          aiSketchUrl ? "\n_AI-generated sketch included._" : null,
         ].filter((line) => line !== null).join("\n"),
       });
       return { data: fallbackPr };
@@ -295,8 +352,10 @@ export const handler = async (event) => {
       statusCode: 201,
       body: JSON.stringify({
         success: true, catalog_no, pr_url: pr.html_url,
-        ai_sketch: !!aiSketchPath,
+        ai_sketch: !!aiSketchUrl,
         ...(aiSketchError ? { ai_sketch_error: aiSketchError } : {}),
+        ...(photoError ? { photo_error: photoError } : {}),
+        ...(sketchError ? { sketch_error: sketchError } : {}),
       }),
     };
   } catch (err) {
