@@ -45,6 +45,93 @@ import Layout from '../layouts/Layout.astro';
     </section>
 
     <section class="prose">
+      <h2>How this journal sketches itself</h2>
+      <p>
+        Most entries here describe something seen outdoors. The sketches that go with them
+        describe something that happens right after: the moment a submission from a Bloom
+        device becomes a page on this site.
+      </p>
+      <p>
+        That handoff is a single Netlify function, <code>netlify/functions/sync-entry.js</code>,
+        and it does three things — upload whatever media came in to Cloudinary, ask Cloudinary
+        to generate a sketch to match, and open a pull request so nothing publishes without a
+        human looking at it first.
+      </p>
+
+      <h3>From device to pull request</h3>
+      <p>
+        A submission arrives as JSON: a catalog number, a timestamp, a note, and optionally a
+        photo and a hand-drawn sketch, both already base64-encoded on the device. The function:
+      </p>
+      <ol>
+        <li>Branches off <code>main</code> — <code>entry/&lt;slug&gt;-&lt;timestamp&gt;</code> — so every submission is isolated.</li>
+        <li>Uploads the photo and sketch, if present, to Cloudinary (<code>field-notes/&lt;slug&gt;</code> and <code>field-notes/&lt;slug&gt;-sketch</code>) so the site can deliver them through Cloudinary's CDN with automatic format and quality optimization.</li>
+        <li>Asks Cloudinary to generate an AI field sketch (below).</li>
+        <li>Writes the markdown file into <code>src/content/notes/</code>, referencing all three images as Cloudinary delivery URLs. Only the markdown is committed to the repo — image binaries live in Cloudinary.</li>
+        <li>Opens a PR against <code>main</code>, labeled <code>device-submission</code>.</li>
+      </ol>
+      <p>
+        That last step is the actual safety mechanism. The endpoint itself checks nothing
+        beyond size and required fields — no auth, because a field device shouldn't need to
+        manage credentials. Review happens on GitHub, not at submission time.
+      </p>
+
+      <h3>Generating a sketch with a reference image</h3>
+      <p>
+        Every entry gets an AI-generated sketch, whether or not the observer submitted a
+        photo or drew one by hand. The prompt is built from the note text:
+      </p>
+      <blockquote>
+        "Create a field sketch illustration in the style of the reference image [1]. The
+        sketch should depict: <em>(the note)</em>. Use a vintage field journal aesthetic with
+        earthy tones, hand-drawn quality, and scientific illustration style."
+      </blockquote>
+      <figure class="reference-figure">
+        <img
+          src="https://res.cloudinary.com/uq7m2iiz/image/upload/f_auto,q_auto/v1787169844/field-notes/sync-entry-reference.jpg"
+          alt="The reference style image that steers every AI-generated field sketch"
+          width="720"
+        />
+        <figcaption>The fixed reference image that acts as the style guide for every AI sketch.</figcaption>
+      </figure>
+      <p>
+        The <code>[1]</code> isn't decorative — it points at a <code>reference_images</code>
+        array passed to Cloudinary's <code>image_to_image</code> generation endpoint, pinned
+        to one fixed image (above) that acts as a style guide. Every generated sketch is
+        steered toward that same look, so the AI sketches across dozens of entries — different
+        handwriting, different species, different observers — still read as one consistent
+        visual voice rather than a new style each time.
+      </p>
+      <p>The request that goes to Cloudinary:</p>
+      <pre><code>fetch(`https://api.cloudinary.com/v2/generate/$&#123;cloudName&#125;/image_to_image`, &#123;
+  method: "POST",
+  headers: &#123; Authorization: `Basic $&#123;credentials&#125;` &#125;,
+  body: JSON.stringify(&#123;
+    prompt,
+    reference_images: [&#123; source_type: "url", url: REFERENCE_IMAGE_URL &#125;],
+    model: &#123; family: "nano-banana", tier: "premium" &#125;,
+    target: &#123; target_type: "managed_asset", public_id: `field-notes/$&#123;slug&#125;-ai` &#125;,
+  &#125;),
+&#125;);</code></pre>
+      <p>
+        The response points at the generated asset, which Cloudinary already stores as a
+        managed asset — the function's markdown references its delivery URL (with
+        <code>f_auto,q_auto</code>) rather than downloading a copy into the repo. If
+        generation fails — missing credentials, a bad response, a network hiccup — the
+        function doesn't fail the whole submission. It logs the reason, skips the AI sketch,
+        and lets the PR go through with whatever media <em>did</em> arrive.
+      </p>
+
+      <h3>Why bother</h3>
+      <p>
+        A device in the field can capture a photo or a rough sketch, but not always both, and
+        not always well. The AI sketch is a third, more consistent artifact — something that
+        gives every entry, however partial, the same hand-drawn field-journal feel this site
+        is trying to have throughout.
+      </p>
+    </section>
+
+    <section class="prose">
       <h2>Read the journal</h2>
       <p>
         The most recent observations live on the <a href="/">journal</a> page, newest first. Each entry
@@ -139,6 +226,71 @@ import Layout from '../layouts/Layout.astro';
     font-family: var(--font-handwritten);
     font-size: 1.25rem;
     color: var(--color-ink-light);
+  }
+
+  .prose h3 {
+    font-size: 1.28rem;
+    margin-top: var(--space-2xl);
+    margin-bottom: var(--space-md);
+    color: var(--color-ink-light);
+  }
+
+  .prose ol {
+    margin-bottom: var(--space-lg);
+    padding-left: var(--space-xl);
+  }
+
+  .prose blockquote {
+    margin: var(--space-xl) 0;
+    padding: var(--space-lg) var(--space-xl);
+    border-left: 3px solid var(--color-sepia-light);
+    background: var(--color-paper-dark);
+    font-style: italic;
+    color: var(--color-ink-light);
+    border-radius: 0 2px 2px 0;
+  }
+
+  .prose code {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.88em;
+    background: var(--color-paper-dark);
+    padding: 2px 6px;
+    border-radius: 2px;
+  }
+
+  .prose pre {
+    background: var(--color-paper-dark);
+    border: 1px solid var(--color-border);
+    border-radius: 2px;
+    padding: var(--space-lg);
+    overflow-x: auto;
+    margin: var(--space-lg) 0 var(--space-xl);
+    line-height: 1.6;
+  }
+
+  .prose pre code {
+    background: none;
+    padding: 0;
+    font-size: 0.85em;
+  }
+
+  .reference-figure {
+    margin: var(--space-xl) 0;
+    text-align: center;
+  }
+
+  .reference-figure img {
+    border: 1px solid var(--color-border);
+    border-radius: 2px;
+    box-shadow: 0 4px 12px var(--color-shadow);
+    margin: 0 auto;
+  }
+
+  .reference-figure figcaption {
+    margin-top: var(--space-sm);
+    font-family: var(--font-handwritten);
+    font-size: 1.05rem;
+    color: var(--color-sepia);
   }
 
   @media (max-width: 768px) {
